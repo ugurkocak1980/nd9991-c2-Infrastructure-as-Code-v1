@@ -56,7 +56,6 @@ Resources:
           sudo systemctl start apache2.service          
       # ToDo: AMI ID of Ubuntu Linux machine. Too get one, try creating a VM from the web console. 
       ImageId: ami-0f29c8402f8cce65c
-      # ToDo: Change the key-pair name, as applicable to you. 
       SecurityGroups:
       - Ref: WebServerSecGroup
       InstanceType: t3.medium

@@ -135,3 +135,5 @@ Outputs:
   LoadBalancerURL:
     Description: URL for LoadBalancer
     Value: !Join ["", ["http://", !GetAtt WebAppLB.DNSName]]
+    Export:
+        Name: !Sub ${EnvironmentName}-URL
