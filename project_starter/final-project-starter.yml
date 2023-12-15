@@ -2,6 +2,12 @@ Parameters:
   EnvironmentName:
     Description: An environment name that will be prefixed to resource names
     Type: String
+  AmiId:
+    Description: Amazon Machine Image in use
+    Type: String
+  InstanceType:
+    Description: Type of the EC2 instance
+    Type: String
 Resources:
   # instace profile contains the IAM Role name(s) that we want to associate to our auto scaling EC2 Servers
   # never give too much permissions to your EC2 instances! if they get hacked, the permissions get hacked also!
@@ -23,6 +29,7 @@ Resources:
           FromPort: 80
           ToPort: 80
           CidrIp: 0.0.0.0/0
+
   WebServerSecGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -41,38 +48,42 @@ Resources:
       SecurityGroupEgress:
         - IpProtocol: tcp
           FromPort: 0
-          ToPort: 65535 #end port
+          ToPort: 65535
           CidrIp: 0.0.0.0/0
+
   WebAppLaunchConfig:
     Type: AWS::AutoScaling::LaunchConfiguration
     Properties:
       UserData:
-        Fn::Base64: !Sub |      
-          sudo apt-get update -y
-          sudo apt-get install apache2 -y
-          sudo systemctl start apache2.service
-          cd /var/www/html
-          echo "Udacity Demo Web Server Up and Running!" > index.html 
-      ImageId: ami-053f2248c09056c48 #ubuntu linux
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          apt-get update -y
+          apt-get install apache2 -y
+          systemctl start apache2.service
+          cd /var/www/html        
+          echo "WellDone ! Udacity Demo Web Server Up and Running!" > index.html
+      ImageId: !Sub ${AmiId}
       SecurityGroups:
         - Ref: WebServerSecGroup
-      InstanceType: t3.medium # Amazon nomenclature for a specific machine which is how much RAM and which CPU
+      InstanceType: !Sub ${InstanceType} # Amazon nomenclature for a specific machine which is how much RAM and which CPU
       # Specifying here that we need 10 GB hard drive for this machine and one drive is enough
       BlockDeviceMappings:
         - DeviceName: "/dev/sdk" # where do I put the hard drive, mount point where you can create folders
           Ebs:
             VolumeSize: "10" # how much Hard-drive space this machine going to need
+
   WebAppGroup:
     Type: AWS::AutoScaling::AutoScalingGroup
     Properties:
       VPCZoneIdentifier:
         - Fn::ImportValue: !Sub "${EnvironmentName}-PRIV-NETS"
-      LaunchConfigurationName: 
-        !Ref WebAppLaunchConfig
+      LaunchConfigurationName:
+        Ref: WebAppLaunchConfig
       MinSize: "4"
       MaxSize: "4"
       TargetGroupARNs:
         - Ref: WebAppTargetGroup
+
   WebAppLB:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
     Properties:
@@ -81,6 +92,7 @@ Resources:
         - Fn::ImportValue: !Sub "${EnvironmentName}-PUB2-SN"
       SecurityGroups:
         - Ref: LBSecGroup
+
   Listener:
     Type: AWS::ElasticLoadBalancingV2::Listener
     Properties:
@@ -92,6 +104,7 @@ Resources:
         Ref: WebAppLB
       Port: "80" # could be 443 for Secure HTTP, for secure http you need a security certificate or SSL certificate
       Protocol: HTTP
+
   ALBListenerRule:
     Type: AWS::ElasticLoadBalancingV2::ListenerRule
     Properties:
@@ -103,15 +116,16 @@ Resources:
           Values: [/]
       ListenerArn: !Ref "Listener"
       Priority: 1
+
   WebAppTargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
-      HealthCheckIntervalSeconds: 30
+      HealthCheckIntervalSeconds: 20
       HealthCheckPath: /
       HealthCheckProtocol: HTTP
-      HealthCheckTimeoutSeconds: 15
-      HealthyThresholdCount: 2
-      UnhealthyThresholdCount: 5
+      HealthCheckTimeoutSeconds: 10
+      HealthyThresholdCount: 4
+      UnhealthyThresholdCount: 10
       Port: 80
       Protocol: HTTP
       VpcId:
@@ -120,7 +134,4 @@ Resources:
 Outputs:
   LoadBalancerURL:
     Description: URL for LoadBalancer
-    Value: !Join ["", ["http://", !GetAtt WebAppLB.DNSName ]]
-    Export: 
-      Name: !Sub ${EnvironmentName}-URL
-
+    Value: !Join ["", ["http://", !GetAtt WebAppLB.DNSName]]
