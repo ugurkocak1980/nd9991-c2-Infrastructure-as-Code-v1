@@ -57,7 +57,6 @@ Resources:
       # ToDo: AMI ID of Ubuntu Linux machine. Too get one, try creating a VM from the web console. 
       ImageId: ami-0f29c8402f8cce65c
       # ToDo: Change the key-pair name, as applicable to you. 
-      KeyName: mykey #nd9990_keypair
       SecurityGroups:
       - Ref: WebServerSecGroup
       InstanceType: t3.medium
@@ -115,7 +114,7 @@ Resources:
       HealthCheckProtocol: HTTP
       HealthCheckTimeoutSeconds: 8
       HealthyThresholdCount: 2
-      Port: 8080
+      Port: 80
       Protocol: HTTP
       UnhealthyThresholdCount: 5
       VpcId: 

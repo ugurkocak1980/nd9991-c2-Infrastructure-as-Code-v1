@@ -20,8 +20,8 @@ Resources:
           CidrIp: 0.0.0.0/0 #allow traffic from anywhere
       SecurityGroupEgress: #outbound traffic, outbound rules associated with the security group.
         - IpProtocol: tcp
-          FromPort: 8080
-          ToPort: 8080
+          FromPort: 80
+          ToPort: 80
           CidrIp: 0.0.0.0/0
   WebServerSecGroup:
     Type: AWS::EC2::SecurityGroup
@@ -31,8 +31,8 @@ Resources:
         Fn::ImportValue: !Sub "${EnvironmentName}-VPCID"
       SecurityGroupIngress:
         - IpProtocol: tcp
-          FromPort: 8080
-          ToPort: 8080
+          FromPort: 80
+          ToPort: 80
           CidrIp: 0.0.0.0/0
         - IpProtocol: tcp #opening an ssh port to connect to a linux server to be able to throubleshoot, manage or install software, e.g. look at a log file
           FromPort: 22
@@ -47,20 +47,13 @@ Resources:
     Type: AWS::AutoScaling::LaunchConfiguration
     Properties:
       UserData:
-        Fn::Base64: !Sub |
-          #!/bin/bash
-          yum update -y
-          yum install -y httpd
-          sed -i 's/Listen 80/Listen 8080/' /etc/httpd/conf/httpd.conf
-          systemctl start httpd
-          systemctl enable httpd      
-          cd /var/www
-          sudo chown ec2-user html/
-          cd html
-          wget https://ugurkocakbucket.s3.eu-central-1.amazonaws.com/udacity.zip
-          unzip udacity.zip
-          rm udacity.zip 
-      ImageId: ami-0669b163befffbdfc # ami-0a261c0e5f51090b1
+        Fn::Base64: !Sub |      
+          sudo apt-get update -y
+          sudo apt-get install apache2 -y
+          sudo systemctl start apache2.service
+          cd /var/www/html
+          echo "Udacity Demo Web Server Up and Running!" > index.html 
+      ImageId: ami-03cea216f9d507835 #ubuntu linux
       SecurityGroups:
         - Ref: WebServerSecGroup
       InstanceType: t3.medium # Amazon nomenclature for a specific machine which is how much RAM and which CPU
@@ -118,7 +111,7 @@ Resources:
       HealthCheckTimeoutSeconds: 15
       HealthyThresholdCount: 2
       UnhealthyThresholdCount: 5
-      Port: 8080
+      Port: 80
       Protocol: HTTP
       VpcId:
         Fn::ImportValue:
@@ -126,5 +119,7 @@ Resources:
 Outputs:
   LoadBalancerURL:
     Description: URL for LoadBalancer
-    Value: http://mySeco-WebAp-JBXsUwNriDbI-590342155.eu-central-1.elb.amazonaws.com
+    Value: !Join ["", ["http://", !GetAtt WebAppLB.DNSName ]]
+    Export: 
+      Name: !Sub ${EnvironmentName}-URL
 
