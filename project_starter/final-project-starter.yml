@@ -1,23 +1,157 @@
 Parameters:
-  # Paramenters are entirely optional.
-  # but using them will make your cloudformation templates more reusable
-  # use them for things that may change over time, such as instance type,
-  # VPCs and so on.
+  EnvironmentName:
+    Description: An environment name that will be prefixed to resource names
+    Type: String
 Resources:
   # instace profile contains the IAM Role name(s) that we want to associate to our auto scaling EC2 Servers
   # never give too much permissions to your EC2 instances! if they get hacked, the permissions get hacked also!
   # in this example, I create a Role called UdacityS3ReadOnlyC2 and just give it a policy of S3 Read-Only Access
+  UdacityS3ReadOnlyEC2:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: MyRole
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: S3ReadAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: s3:GetObject
+                Resource: arn:aws:s3:::ugurkocakbucket/*
   ProfileWithRolesForOurApp:
     Type: AWS::IAM::InstanceProfile
-    Properties: 
+    Properties:
       Roles:
-        - UdacityS3ReadOnlyEC2
-Outputs: 
+        - !Ref UdacityS3ReadOnlyEC2
+  LBSecGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow http to our load balancer
+      VpcId: # VPC ID in which you are creating the Security Group.
+        Fn::ImportValue: !Sub "${EnvironmentName}-VPCID"
+      # The security group below with ingress/egress rules allowing traffic on port 80 using TCP protocol from/to any location:
+      SecurityGroupIngress: #inbound traffic, inbound rules associated with the security group.
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0 #allow traffic from anywhere
+      SecurityGroupEgress: #outbound traffic, outbound rules associated with the security group.
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+  WebServerSecGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow http to our hosts and SSH from local only
+      VpcId:
+        Fn::ImportValue: !Sub "${EnvironmentName}-VPCID"
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp #opening an ssh port to connect to a linux server to be able to throubleshoot, manage or install software, e.g. look at a log file
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 0
+          ToPort: 65535 #end port
+          CidrIp: 0.0.0.0/0
+  WebAppLaunchConfig:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties:
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          yum update -y
+          yum install -y httpd
+          sed -i 's/Listen 80/Listen 8080/' /etc/httpd/conf/httpd.conf
+          systemctl start httpd
+          systemctl enable httpd      
+          cd /var/www
+          sudo chown ec2-user html/
+          cd html
+          wget https://ugurkocakbucket.s3.eu-central-1.amazonaws.com/udacity.zip
+          unzip udacity.zip
+          rm udacity.zip
+      ImageId: ami-0669b163befffbdfc # ami-0a261c0e5f51090b1
+      SecurityGroups:
+        - Ref: WebServerSecGroup
+      InstanceType: t3.medium # Amazon nomenclature for a specific machine which is how much RAM and which CPU
+      # Specifying here that we need 10 GB hard drive for this machine and one drive is enough
+      BlockDeviceMappings:
+        - DeviceName: "/dev/sdk" # where do I put the hard drive, mount point where you can create folders
+          Ebs:
+            VolumeSize: "10" # how much Hard-drive space this machine going to need
+  WebAppGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      VPCZoneIdentifier:
+        - Fn::ImportValue: !Sub "${EnvironmentName}-PRIV-NETS"
+      LaunchConfigurationName: !Ref WebAppLaunchConfig
+      MinSize: "4"
+      MaxSize: "4"
+      TargetGroupARNs:
+        - Ref: WebAppTargetGroup
+  WebAppLB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Subnets:
+        - Fn::ImportValue: !Sub "${EnvironmentName}-PUB1-SN"
+        - Fn::ImportValue: !Sub "${EnvironmentName}-PUB2-SN"
+      SecurityGroups:
+        - Ref: LBSecGroup
+  Listener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn:
+            Ref: WebAppTargetGroup
+      LoadBalancerArn:
+        Ref: WebAppLB
+      Port: "80" # could be 443 for Secure HTTP, for secure http you need a security certificate or SSL certificate
+      Protocol: HTTP
+  ALBListenerRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      Actions:
+        - Type: forward # forward requests to the specified target group
+          TargetGroupArn: !Ref "WebAppTargetGroup"
+      Conditions:
+        - Field: path-pattern
+          Values: [/]
+      ListenerArn: !Ref "Listener"
+      Priority: 1
+  WebAppTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckIntervalSeconds: 30 
+      HealthCheckPath: / 
+      HealthCheckProtocol: HTTP 
+      HealthCheckTimeoutSeconds: 15 
+      HealthyThresholdCount: 2 
+      UnhealthyThresholdCount: 5
+      Port: 80
+      Protocol: HTTP
+      VpcId: 
+        Fn::ImportValue:
+          Fn::Sub: "${EnvironmentName}-VPCID"
+Outputs:
   # This is also optional.
   # Bonus points for useful outputs!
   # for example, if you create a Load Balancer
   # it's nice to output the URL to it here, so that we don't have to go to the console to get it.
-
 # Sample UserData
 # When creating your Launch Configuration, you may need a UserData script
 # here's one that you can use for Ubuntu Linux that will:
