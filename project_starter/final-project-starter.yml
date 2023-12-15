@@ -53,7 +53,7 @@ Resources:
           sudo systemctl start apache2.service
           cd /var/www/html
           echo "Udacity Demo Web Server Up and Running!" > index.html 
-      ImageId: ami-094a2e49a5a78f32c #ubuntu linux
+      ImageId: ami-053f2248c09056c48 #ubuntu linux
       SecurityGroups:
         - Ref: WebServerSecGroup
       InstanceType: t3.medium # Amazon nomenclature for a specific machine which is how much RAM and which CPU
